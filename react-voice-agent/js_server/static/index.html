@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS - AI Assistant</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #0f1419, #1a2332);
+            color: #00d4ff;
+            overflow: hidden;
+        }
+
+        .jarvis-container {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 30px;
+        }
+
+        .jarvis-title {
+            font-size: 3em;
+            font-weight: 300;
+            letter-spacing: 8px;
+            margin: 0;
+            text-shadow: 0 0 20px #00d4ff;
+            animation: glow 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes glow {
+            from { text-shadow: 0 0 20px #00d4ff; }
+            to { text-shadow: 0 0 30px #00d4ff, 0 0 40px #0099cc; }
+        }
+
+        .status-text {
+            font-size: 1.2em;
+            margin: 10px 0;
+            min-height: 30px;
+            opacity: 0.8;
+        }
+
+        .voice-orb {
+            width: 200px;
+            height: 200px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0, 212, 255, 0.3), rgba(0, 153, 204, 0.1));
+            border: 2px solid #00d4ff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .voice-orb:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 40px rgba(0, 212, 255, 0.6);
+        }
+
+        .voice-orb.listening {
+            animation: pulse 1.5s ease-in-out infinite;
+            box-shadow: 0 0 50px rgba(0, 212, 255, 0.8);
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        .orb-inner {
+            width: 80%;
+            height: 80%;
+            border-radius: 50%;
+            background: rgba(0, 212, 255, 0.1);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.2em;
+            font-weight: 500;
+        }
+
+        .controls {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .wake-word-toggle {
+            padding: 12px 24px;
+            background: rgba(0, 212, 255, 0.2);
+            border: 1px solid #00d4ff;
+            border-radius: 25px;
+            color: #00d4ff;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 1em;
+        }
+
+        .wake-word-toggle:hover {
+            background: rgba(0, 212, 255, 0.3);
+            box-shadow: 0 0 15px rgba(0, 212, 255, 0.5);
+        }
+
+        .wake-word-toggle.active {
+            background: rgba(0, 212, 255, 0.4);
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.7);
+        }
+
+        .safety-switch {
+            padding: 8px 16px;
+            background: rgba(255, 100, 100, 0.2);
+            border: 1px solid #ff6464;
+            border-radius: 20px;
+            color: #ff6464;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
+        }
+
+        .safety-switch:hover {
+            background: rgba(255, 100, 100, 0.3);
+        }
+
+        .mode-indicator {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            padding: 8px 16px;
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid #00d4ff;
+            border-radius: 15px;
+            font-size: 0.9em;
+        }
+
+        .footer {
+            position: absolute;
+            bottom: 20px;
+            font-size: 0.8em;
+            opacity: 0.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="mode-indicator">Mode: Butler</div>
+    
+    <div class="jarvis-container">
+        <h1 class="jarvis-title">JARVIS</h1>
+        
+        <div class="status-text" id="statusText">Ready to assist, sir</div>
+        
+        <div class="voice-orb" id="voiceOrb">
+            <div class="orb-inner" id="orbInner">
+                <span id="orbText">Click to Activate</span>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button class="wake-word-toggle" id="wakeWordToggle">Enable "Hey JARVIS"</button>
+            <button class="safety-switch" id="safetySwitch">Safety Switch</button>
+        </div>
+    </div>
+    
+    <div class="footer">JARVIS AI Assistant - Powered by OpenAI Realtime API</div>
+
+    <script>
+        // JARVIS Interface Logic
+        const BUFFER_SIZE = 2400; // Reduced buffer size to fix audio glitching
+        let jarvisState = {
+            isAwake: false,
+            isListening: false,
+            wakeWordEnabled: false,
+            safetyEnabled: true,
+            mode: 'butler'
+        };
+        let ws = null;
+        let stateWs = null;
+        let porcupineWorker = null;
+        let wakeWordRecorder = null;
+
+        // DOM Elements
+        const voiceOrb = document.getElementById('voiceOrb');
+        const orbInner = document.getElementById('orbInner');
+        const orbText = document.getElementById('orbText');
+        const statusText = document.getElementById('statusText');
+        const wakeWordToggle = document.getElementById('wakeWordToggle');
+        const safetySwitch = document.getElementById('safetySwitch');
+
+        // Audio Classes (keep existing ones)
+        class Player {
+            constructor() {
+                this.playbackNode = null;
+            }
+
+            async init(sampleRate) {
+                const audioContext = new AudioContext({ sampleRate });
+                await audioContext.audioWorklet.addModule("/static/audio-playback-worklet.js");
+
+                this.playbackNode = new AudioWorkletNode(audioContext, "audio-playback-worklet");
+                this.playbackNode.connect(audioContext.destination);
+            }
+
+            play(buffer) {
+                if (this.playbackNode) {
+                    this.playbackNode.port.postMessage(buffer);
+                }
+            }
+
+            stop() {
+                if (this.playbackNode) {
+                    this.playbackNode.port.postMessage(null);
+                }
+            }
+        }   
+
+        class Recorder {
+            constructor(onDataAvailable) {
+                this.onDataAvailable = onDataAvailable;
+                this.audioContext = null;
+                this.mediaStream = null;
+                this.mediaStreamSource = null;
+                this.workletNode = null;
+            }
+
+            async start(stream) {
+                try {
+                    if (this.audioContext) {
+                        await this.audioContext.close();
+                    }
+
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+
+                    await this.audioContext.audioWorklet.addModule("/static/audio-processor-worklet.js");
+
+                    this.mediaStream = stream;
+                    this.mediaStreamSource = this.audioContext.createMediaStreamSource(this.mediaStream);
+
+                    this.workletNode = new AudioWorkletNode(this.audioContext, "audio-processor-worklet");
+                    this.workletNode.port.onmessage = event => {
+                        this.onDataAvailable(event.data.buffer);
+                    };
+
+                    this.mediaStreamSource.connect(this.workletNode);
+                    this.workletNode.connect(this.audioContext.destination);
+                } catch (error) {
+                    this.stop();
+                }
+            }
+
+            async stop() {
+                if (this.mediaStream) {
+                    this.mediaStream.getTracks().forEach(track => track.stop());
+                    this.mediaStream = null;
+                }
+
+                if (this.audioContext) {
+                    await this.audioContext.close();
+                    this.audioContext = null;
+                }
+
+                this.mediaStreamSource = null;
+                this.workletNode = null;
+            }
+        }
+
+        // Initialize State WebSocket
+        function initializeStateConnection() {
+            stateWs = new WebSocket("ws://localhost:3000/ws/state");
+            
+            stateWs.onmessage = event => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'state_update') {
+                    jarvisState = data.state;
+                    updateUI();
+                }
+            };
+            
+            stateWs.onclose = () => {
+                // Reconnect after 2 seconds
+                setTimeout(initializeStateConnection, 2000);
+            };
+        }
+
+        // Update UI based on JARVIS state
+        function updateUI() {
+            // Update wake word button
+            wakeWordToggle.classList.toggle('active', jarvisState.wakeWordEnabled);
+            wakeWordToggle.textContent = jarvisState.wakeWordEnabled ? '"Hey JARVIS" Enabled' : 'Enable "Hey JARVIS"';
+            
+            // Update safety switch
+            safetySwitch.style.background = jarvisState.safetyEnabled ? 
+                'rgba(255, 100, 100, 0.2)' : 'rgba(255, 100, 100, 0.5)';
+            safetySwitch.textContent = jarvisState.safetyEnabled ? 'Safety Switch' : 'SAFETY OFF';
+            
+            // Update orb and status
+            if (!jarvisState.safetyEnabled) {
+                statusText.textContent = "Safety switch is engaged";
+                orbText.textContent = "Safety Mode";
+                voiceOrb.classList.remove('listening');
+            } else if (jarvisState.wakeWordEnabled && !jarvisState.isAwake) {
+                statusText.textContent = 'Say "Hey JARVIS" to activate';
+                orbText.textContent = "Sleeping";
+                voiceOrb.classList.remove('listening');
+            } else if (jarvisState.isListening) {
+                statusText.textContent = "JARVIS is listening";
+                orbText.textContent = "Listening...";
+                voiceOrb.classList.add('listening');
+            } else if (jarvisState.isAwake) {
+                statusText.textContent = "JARVIS is awake";
+                orbText.textContent = "Ready";
+                voiceOrb.classList.remove('listening');
+            } else {
+                statusText.textContent = "Ready to assist, sir";
+                orbText.textContent = "Click to Activate";
+                voiceOrb.classList.remove('listening');
+            }
+        }
+
+        // API Calls to Backend
+        async function apiCall(endpoint, method = 'GET') {
+            try {
+                const response = await fetch(`http://localhost:3000/api/jarvis/${endpoint}`, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                return await response.json();
+            } catch (error) {
+                console.error('API call failed:', error);
+                return null;
+            }
+        }
+
+        // Wake Word Detection with Porcupine
+        async function initializePorcupine() {
+            try {
+                porcupineWorker = new Worker('/static/porcupine-worker.js');
+                
+                porcupineWorker.onmessage = (event) => {
+                    const { command, keyword, message } = event.data;
+                    
+                    switch (command) {
+                        case 'ready':
+                            console.log('Wake word detection ready');
+                            statusText.textContent = 'Say "Hey JARVIS" to activate';
+                            break;
+                        case 'keyword':
+                            if (keyword === 'jarvis') {
+                                console.log('Wake word detected!');
+                                handleWakeWordDetected();
+                            }
+                            break;
+                        case 'error':
+                            console.error('Wake word error:', message);
+                            statusText.textContent = "Wake word detection unavailable";
+                            break;
+                    }
+                };
+                
+                // Start the worker
+                porcupineWorker.postMessage({ command: 'init' });
+                
+                // Start audio processing for wake word
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                wakeWordRecorder = new Recorder((data) => {
+                    if (porcupineWorker) {
+                        porcupineWorker.postMessage({
+                            command: 'process',
+                            data: data
+                        });
+                    }
+                });
+                await wakeWordRecorder.start(stream);
+                
+            } catch (error) {
+                console.error('Failed to initialize wake word detection:', error);
+                statusText.textContent = "Wake word detection unavailable";
+            }
+        }
+
+        async function handleWakeWordDetected() {
+            if (jarvisState.wakeWordEnabled && jarvisState.safetyEnabled) {
+                const result = await apiCall('wake', 'POST');
+                if (result) {
+                    startJarvisVoice();
+                }
+            }
+        }
+
+        // JARVIS Voice Logic
+        async function startJarvisVoice() {
+            try {
+                if (!jarvisState.safetyEnabled) {
+                    statusText.textContent = "Safety switch is engaged";
+                    return;
+                }
+
+                // Update UI immediately
+                voiceOrb.classList.add('listening');
+                orbText.textContent = "Connecting...";
+                statusText.textContent = "Initializing JARVIS";
+
+                // WebSocket connection
+                ws = new WebSocket("ws://localhost:3000/ws");
+
+                const audioPlayer = new Player();
+                audioPlayer.init(24000);
+
+                ws.onmessage = event => {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.type === 'response.audio.delta') {
+                        const binary = atob(data.delta);
+                        const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+                        const pcmData = new Int16Array(bytes.buffer);
+                        audioPlayer.play(pcmData);
+                    } else if (data.type === 'wake_acknowledged') {
+                        statusText.textContent = "JARVIS is listening";
+                        orbText.textContent = "Listening...";
+                    } else if (data.type === 'error') {
+                        statusText.textContent = data.message;
+                        stopJarvisVoice();
+                    }
+                };
+
+                ws.onopen = () => {
+                    statusText.textContent = "Connected to JARVIS";
+                    orbText.textContent = "Listening...";
+                };
+
+                ws.onclose = () => {
+                    stopJarvisVoice();
+                };
+
+                let buffer = new Uint8Array();
+
+                const appendToBuffer = (newData) => {
+                    const newBuffer = new Uint8Array(buffer.length + newData.length);
+                    newBuffer.set(buffer);
+                    newBuffer.set(newData, buffer.length);
+                    buffer = newBuffer;
+                };
+
+                const handleAudioData = (data) => {
+                    const uint8Array = new Uint8Array(data);
+                    appendToBuffer(uint8Array);
+
+                    if (buffer.length >= BUFFER_SIZE) {
+                        const toSend = new Uint8Array(buffer.slice(0, BUFFER_SIZE));
+                        buffer = new Uint8Array(buffer.slice(BUFFER_SIZE));
+
+                        const regularArray = String.fromCharCode(...toSend);
+                        const base64 = btoa(regularArray);
+
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({type: 'input_audio_buffer.append', audio: base64}));
+                        }
+                    }
+                };
+
+                // Start audio recording
+                const audioRecorder = new Recorder(handleAudioData);
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                await audioRecorder.start(stream);
+
+            } catch (error) {
+                console.error('Error starting JARVIS voice:', error);
+                statusText.textContent = "Error accessing microphone";
+                stopJarvisVoice();
+            }
+        }
+
+        function stopJarvisVoice() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            
+            updateUI(); // This will set the correct state based on jarvisState
+        }
+
+        // Wake Word Toggle
+        async function toggleWakeWord() {
+            const result = await apiCall('toggle-wake-word', 'POST');
+            if (result) {
+                jarvisState = result.state;
+                updateUI();
+                
+                // Initialize or stop Porcupine based on state
+                if (jarvisState.wakeWordEnabled && !porcupineWorker) {
+                    await initializePorcupine();
+                } else if (!jarvisState.wakeWordEnabled && porcupineWorker) {
+                    porcupineWorker.terminate();
+                    porcupineWorker = null;
+                    if (wakeWordRecorder) {
+                        await wakeWordRecorder.stop();
+                        wakeWordRecorder = null;
+                    }
+                }
+            }
+        }
+
+        // Safety Switch
+        async function toggleSafety() {
+            const result = await apiCall('toggle-safety', 'POST');
+            if (result) {
+                jarvisState = result.state;
+                updateUI();
+                
+                if (!jarvisState.safetyEnabled) {
+                    stopJarvisVoice();
+                }
+            }
+        }
+
+        // Manual Wake/Sleep
+        async function manualWake() {
+            const result = await apiCall('wake', 'POST');
+            if (result) {
+                startJarvisVoice();
+            }
+        }
+
+        async function manualSleep() {
+            const result = await apiCall('sleep', 'POST');
+            if (result) {
+                stopJarvisVoice();
+            }
+        }
+
+        // Event Listeners
+        voiceOrb.addEventListener('click', () => {
+            if (jarvisState.wakeWordEnabled) {
+                // In wake word mode, orb toggles wake/sleep
+                if (jarvisState.isAwake) {
+                    manualSleep();
+                } else {
+                    manualWake();
+                }
+            } else {
+                // In manual mode, orb starts/stops voice
+                if (!jarvisState.isListening) {
+                    startJarvisVoice();
+                } else {
+                    stopJarvisVoice();
+                }
+            }
+        });
+
+        wakeWordToggle.addEventListener('click', toggleWakeWord);
+        safetySwitch.addEventListener('click', toggleSafety);
+
+        // Initialize
+        initializeStateConnection();
+        updateUI();
+        console.log('JARVIS Interface Loaded');
+    </script>
+</body>
+</html>
