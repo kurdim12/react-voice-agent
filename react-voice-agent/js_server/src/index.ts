@@ -7,10 +7,9 @@ import { createNodeWebSocket } from "@hono/node-ws";
 import { serveStatic } from "@hono/node-server/serve-static";
 
 import { OpenAIVoiceReactAgent } from "./lib/langchain_openai_voice.js";
-import { INSTRUCTIONS } from "./prompt.js";
-import { getAllTools } from "./tools.js";
-import { StructuredTool } from "langchain/tools";
-import { z } from "zod";
+import { JARVIS_PROMPT } from "./prompt.js";
+import { getAllTools as getSystemTools, executeToolCall } from "./tools.js";
+// Removed unused imports
 
 const app = new Hono();
 
@@ -93,6 +92,35 @@ app.post("/api/jarvis/toggle-safety", async (c) => {
   });
 });
 
+// Tool testing endpoint
+app.post("/api/test-tool", async (c) => {
+  try {
+    const result = await executeToolCall('get_current_time', {});
+    return c.json({ 
+      status: 'Tools integration working!', 
+      test_result: result,
+      available_tools: getSystemTools().length
+    });
+  } catch (error: any) {
+    return c.json({ 
+      error: 'Tools integration failed', 
+      details: error.message 
+    }, 500);
+  }
+});
+
+// Get available tools
+app.get("/api/tools", (c) => {
+  const tools = getSystemTools();
+  return c.json({ 
+    count: tools.length,
+    tools: tools.map((tool: any) => ({
+      name: tool.function.name,
+      description: tool.function.description
+    }))
+  });
+});
+
 // WebSocket for state updates
 app.get(
   "/ws/state",
@@ -106,7 +134,7 @@ app.get(
   }))
 );
 
-// Enhanced Voice WebSocket (fixed types)
+// Enhanced Voice WebSocket with proper OpenAI integration
 app.get(
   "/ws",
   upgradeWebSocket(() => ({
@@ -128,7 +156,7 @@ app.get(
         const modeInstructions = getModeInstructions(jarvisState.mode);
         const agent = new OpenAIVoiceReactAgent({
           instructions: modeInstructions,
-          tools: getAllTools(),
+          tools: convertToStructuredTools(),
           model: "gpt-4o-realtime-preview",
           apiKey: process.env.OPENAI_API_KEY,
         });
@@ -159,7 +187,7 @@ app.get(
 
 // Helper Functions
 function getModeInstructions(mode: string): string {
-  const baseInstructions = INSTRUCTIONS;
+  const baseInstructions = JARVIS_PROMPT;
   
   switch (mode) {
     case 'butler':
@@ -179,21 +207,11 @@ function getModeInstructions(mode: string): string {
   }
 }
 
-export function getAllTools(): StructuredTool<any>[] {
-  return [
-    new StructuredTool({
-      name: "search_web",
-      description: "Search the web for information.",
-      schema: z.object({
-        query: z.string().describe("Search query")
-      }),
-      async call({ query }) {
-        // Implement search logic here
-        return `Searched for: ${query}`;
-      }
-    }),
-    // Add other tools as StructuredTool instances here
-  ];
+// Convert system tools to StructuredTool format for LangChain
+function convertToStructuredTools(): any[] {
+  // For now, return the system tools directly
+  // The OpenAI voice agent will handle the conversion
+  return getSystemTools();
 }
 
 const port = 3000;
@@ -206,5 +224,7 @@ const server = serve({
 injectWebSocket(server);
 
 console.log(`🤖 JARVIS Server is running on port ${port}`);
+console.log(`🔧 Available tools: ${getSystemTools().length}`);
 console.log(`Current mode: ${jarvisState.mode}`);
 console.log(`Safety enabled: ${jarvisState.safetyEnabled}`);
+console.log(`🌐 Open http://localhost:${port} to access JARVIS`);
